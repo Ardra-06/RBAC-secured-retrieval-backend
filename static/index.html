@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>RBAC RAG</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 16px; }
+  input { padding: 8px; margin: 4px 0; }
+  button { padding: 8px 14px; }
+  .card { border: 1px solid #ccc; border-radius: 6px; padding: 10px; margin: 10px 0; }
+  .small { color: #666; font-size: 13px; }
+</style>
+</head>
+<body>
+<h2>RBAC RAG demo</h2>
+
+<div id="loginBox">
+  <input id="user" placeholder="username"><br>
+  <input id="pw" type="password" placeholder="password"><br>
+  <button onclick="login()">Log in</button>
+</div>
+
+<div id="searchBox" style="display:none">
+  <p>Logged in as <b id="who"></b> <button onclick="logout()">Log out</button></p>
+  <input id="q" size="50" placeholder="Ask a question">
+  <button onclick="ask()">Search</button>
+</div>
+
+<p id="msg" class="small"></p>
+<div id="results"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let token = null;
+
+  async function login() {
+    const r = await fetch("/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: $("user").value, password: $("pw").value }),
+    });
+    if (!r.ok) { $("msg").textContent = "Wrong username or password"; return; }
+    token = (await r.json()).access_token;
+    $("who").textContent = $("user").value;
+    $("loginBox").style.display = "none";
+    $("searchBox").style.display = "block";
+    $("msg").textContent = "";
+  }
+
+  function logout() {
+    token = null;
+    $("loginBox").style.display = "block";
+    $("searchBox").style.display = "none";
+    $("results").innerHTML = "";
+    $("pw").value = "";
+  }
+
+  async function ask() {
+    const r = await fetch("/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ question: $("q").value }),
+    });
+    if (r.status === 401) { logout(); $("msg").textContent = "Session expired. Log in again."; return; }
+    const data = await r.json();
+    const box = $("results");
+    box.innerHTML = "";
+    $("msg").textContent = data.results.length + " result(s)";
+    for (const h of data.results) {
+      const card = document.createElement("div");
+      card.className = "card";
+      const title = document.createElement("b");
+      title.textContent = h.doc_id + " (score " + h.score + ")";
+      const text = document.createElement("p");
+      text.textContent = h.text;
+      card.append(title, text);
+      box.append(card);
+    }
+  }
+</script>
+</body>
+</html>
