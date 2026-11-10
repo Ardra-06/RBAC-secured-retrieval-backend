@@ -1,10 +1,13 @@
 import hmac
 
 from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+from answer import answer
 from audit import init_db, log_search, read_log
 from auth import USERS_DB, create_token, get_current_user
+from llm import generate
 from rag_core import search
 
 app = FastAPI(title="RBAC RAG")
@@ -20,6 +23,10 @@ class SearchRequest(BaseModel):
     question: str
 
 
+class AskRequest(BaseModel):
+    question: str
+
+
 @app.post("/login")
 def login(body: LoginRequest):
     user = USERS_DB.get(body.username)
@@ -32,7 +39,7 @@ def login(body: LoginRequest):
 def search_endpoint(body: SearchRequest, user=Depends(get_current_user)):
     hits = search(body.question, user)
     doc_ids = [h.payload["doc_id"] for h in hits]
-    log_search(user, body.question, doc_ids)  # write the diary entry
+    log_search(user, body.question, doc_ids)
     return {
         "user": user["username"],
         "results": [
@@ -46,11 +53,19 @@ def search_endpoint(body: SearchRequest, user=Depends(get_current_user)):
     }
 
 
+@app.post("/ask")
+def ask(body: AskRequest, user=Depends(get_current_user)):
+    result = answer(body.question, user, generate)
+    log_search(user, body.question, result["retrieved"])
+    return {"answer": result["answer"], "sources": result["sources"]}
+
+
 @app.get("/audit")
 def audit_log(user=Depends(get_current_user)):
     if "admin" not in user["roles"]:
         raise HTTPException(status_code=403, detail="Admins only")
     return read_log()
+
 
 @app.get("/")
 def home():

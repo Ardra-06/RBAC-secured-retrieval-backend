@@ -1,5 +1,6 @@
 import os
 os.environ["AUDIT_DB"] = "test_audit.db"  # must come BEFORE the other imports
+from answer import answer
 import jwt
 from fastapi.testclient import TestClient
 
@@ -113,3 +114,29 @@ def test_only_admin_can_read_audit_log():
 
     admin = auth_header("admin", "admin123")
     assert client.get("/audit", headers=admin).status_code == 200
+
+def test_llm_never_sees_forbidden_text():
+    seen = []
+
+    def fake_llm(system, prompt):
+        seen.append(system + prompt)
+        return "ok"
+
+    for name, user in USERS.items():
+        ok = allowed_ids(user)
+        for q in QUERIES:
+            seen.clear()
+            answer(q, user, fake_llm)
+            for d in DOCUMENTS:
+                if d["doc_id"] not in ok:
+                    for sent in seen:
+                        assert d["text"] not in sent, f"LEAK to LLM: {name} got {d['doc_id']}"
+
+
+def test_invented_citation_is_removed():
+    def fake_llm(system, prompt):
+        return "Leave is 24 days [pol-001]. Extra claim [hr-001]."
+
+    result = answer("how many leave days", USERS["employee"], fake_llm)
+    assert "[hr-001]" not in result["answer"]
+    assert result["sources"] == ["pol-001"]
